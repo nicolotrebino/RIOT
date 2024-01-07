@@ -4,7 +4,9 @@ For the actual readme.md go to the master branch.
 Here you have an implementation of a feedback scheduler, created for a university project in the operating systems course.
 
 Team members: 
+
 Nicolò Trebino
+
 Federico Garau
 
 # DOCUMENTATION
