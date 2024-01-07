@@ -32,7 +32,7 @@
 #include "bitarithm.h"
 #include "sched.h"
 
-#define ENABLE_DEBUG 0
+#define ENABLE_DEBUG 1
 #include "debug.h"
 
 thread_status_t thread_getstatus(kernel_pid_t pid)
@@ -192,9 +192,22 @@ kernel_pid_t thread_create(char *stack, int stacksize, uint8_t priority,
                            int flags, thread_task_func_t function, void *arg,
                            const char *name)
 {
-    if (priority >= SCHED_PRIO_LEVELS) {
+
+    if (priority >= SCHED_PRIO_LEVELS){
         return -EINVAL;
     }
+
+    #ifdef MODULE_SCHED_FEEDBACK
+    // Check if the priority is not a negative value 
+    if (priority < 1) {
+        return -EINVAL;
+    }
+    // Preserving the value of the minimum priority and of the thread's main priority
+    // (respectively 15 and 1), and changing the others prio value to 2
+    if((priority != THREAD_PRIORITY_MIN) && (priority != THREAD_PRIORITY_MAIN)){
+        priority = 2;
+    }
+    #endif
 
 #ifdef DEVELHELP
     int total_stacksize = stacksize;

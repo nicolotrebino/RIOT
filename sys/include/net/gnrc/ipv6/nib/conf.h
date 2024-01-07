@@ -130,10 +130,17 @@ extern "C" {
 #endif
 
 /**
- * @brief    activate router advertising at interface start-up
+ * @brief    (de-)activate router advertising at interface start-up
  */
 #ifndef CONFIG_GNRC_IPV6_NIB_ADV_ROUTER
+#if CONFIG_GNRC_IPV6_NIB_ROUTER && \
+    (!CONFIG_GNRC_IPV6_NIB_6LR || CONFIG_GNRC_IPV6_NIB_6LBR) && \
+    !(IS_USED(MODULE_DHCPV6_CLIENT_IA_PD) || IS_USED(MODULE_GNRC_UHCPC) || \
+      IS_USED(MODULE_GNRC_IPV6_AUTO_SUBNETS) || IS_USED(MODULE_GNRC_IPV6_STATIC_ADDR))
+#define CONFIG_GNRC_IPV6_NIB_ADV_ROUTER               1
+#else
 #define CONFIG_GNRC_IPV6_NIB_ADV_ROUTER               0
+#endif
 #endif
 
 /**

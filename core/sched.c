@@ -170,6 +170,11 @@ thread_t *__attribute__((used)) sched_run(void)
     sched_runq_callback(nextrq);
 #endif
 
+// Printing the context switches
+#if (IS_USED(MODULE_SCHED_FEEDBACK))
+    printf("Next thread: %s. PID: %u. PRIORITY: %u \n", next_thread->name, next_thread->pid, next_thread->priority);
+#endif
+
     DEBUG(
         "sched_run: active thread: %" PRIkernel_pid ", next thread: %" PRIkernel_pid "\n",
         (kernel_pid_t)((active_thread == NULL)

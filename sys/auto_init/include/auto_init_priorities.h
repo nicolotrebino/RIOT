@@ -67,6 +67,18 @@ extern "C" {
 #endif
 #ifndef AUTO_INIT_PRIO_MOD_DUMMY_THREAD
 /**
+ * @brief   scheduling statistics priority
+ */
+#define AUTO_INIT_PRIO_MOD_SCHEDSTATISTICS              1050
+#endif
+#ifndef AUTO_INIT_PRIO_MOD_SCHED_FEEDBACK
+/**
+ * @brief   feedback scheduling priority
+ */
+#define AUTO_INIT_PRIO_MOD_SCHED_FEEDBACK           1060
+#endif
+#ifndef AUTO_INIT_PRIO_MOD_DUMMY_THREAD
+/**
  * @brief   dummy thread priority
  */
 #define AUTO_INIT_PRIO_MOD_DUMMY_THREAD                 1070

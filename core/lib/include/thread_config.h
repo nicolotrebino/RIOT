@@ -132,8 +132,12 @@ extern "C" {
  * @brief Priority of the main thread
  */
 #ifndef THREAD_PRIORITY_MAIN
-#define THREAD_PRIORITY_MAIN           (THREAD_PRIORITY_MIN - \
-                                        (SCHED_PRIO_LEVELS / 2))
+#ifdef MODULE_SCHED_FEEDBACK
+#define THREAD_PRIORITY_MAIN 1
+#else 
+#define THREAD_PRIORITY_MAIN            (THREAD_PRIORITY_MIN - \
+                                            (SCHED_PRIO_LEVELS / 2))
+#endif
 #endif
 
 #ifdef __cplusplus
