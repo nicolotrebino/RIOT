@@ -79,7 +79,7 @@ If you are only interested in the code we added you can check out this commit:
 
 Or check the patch file:
 
-[Patch file](project_documentation/documentation.pdf)
+[Patch file](project_documentation/RIOTpatch.patch)
 
 
 \* A GitHub codespace is a cloud-based development environment that allows you to write, run, and test code directly in the browser or your preferred development environment. It's a virtualized instance of a complete development environment with all the necessary dependencies and configurations.
