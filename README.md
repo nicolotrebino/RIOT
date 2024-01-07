@@ -1,166 +1,76 @@
-[![Nightly CI status master][master-ci-badge]][master-ci-link]
-[![GitHub release][release-badge]][release-link]
-[![License][license-badge]][license-link]
-[![API docs][api-badge]][api-link]
-[![Wiki][wiki-badge]][wiki-link]
-[![Stack Overflow questions][stackoverflow-badge]][stackoverflow-link]
-[![Twitter][twitter-badge]][twitter-link]
-[![Matrix][matrix-badge]][matrix-link]
+For the actual readme.md go to the master branch.
 
-<p align="center"><img src="doc/doxygen/src/riot-logo.svg" width="66%"><!--
-                          ZZZZZZ
-                        ZZZZZZZZZZZZ
-                      ZZZZZZZZZZZZZZZZ
-                     ZZZZZZZ     ZZZZZZ
-                    ZZZZZZ        ZZZZZ
-                    ZZZZZ          ZZZZ
-                    ZZZZ           ZZZZZ
-                    ZZZZ           ZZZZ
-                    ZZZZ          ZZZZZ
-                    ZZZZ        ZZZZZZ
-                    ZZZZ     ZZZZZZZZ       777        7777       7777777777
-              ZZ    ZZZZ   ZZZZZZZZ         777      77777777    77777777777
-          ZZZZZZZ   ZZZZ  ZZZZZZZ           777     7777  7777       777
-        ZZZZZZZZZ   ZZZZ    Z               777     777    777       777
-       ZZZZZZ       ZZZZ                    777     777    777       777
-      ZZZZZ         ZZZZ                    777     777    777       777
-     ZZZZZ          ZZZZZ    ZZZZ           777     777    777       777
-     ZZZZ           ZZZZZ    ZZZZZ          777     777    777       777
-     ZZZZ           ZZZZZ     ZZZZZ         777     777    777       777
-     ZZZZ           ZZZZ       ZZZZZ        777     777    777       777
-     ZZZZZ         ZZZZZ        ZZZZZ       777     777    777       777
-      ZZZZZZ     ZZZZZZ          ZZZZZ      777     7777777777       777
-       ZZZZZZZZZZZZZZZ            ZZZZ      777      77777777        777
-         ZZZZZZZZZZZ               Z
-            ZZZZZ                                                           --></p>
+### ABOUT THE PROJECT
+Here you have an implementation of a feedback scheduler, created for a university project in the operating systems course.
 
-The friendly Operating System for IoT!
+Team members: 
+Nicolò Trebino
+Federico Garau
 
-RIOT is a real-time multi-threading operating system that supports a range of
-devices that are typically found in the Internet of Things (IoT):
-8-bit, 16-bit and 32-bit microcontrollers.
+# DOCUMENTATION
+## SOLUTION
+We decided to implement a feedback scheduler that replaces the original priority-based scheduler. The feedback scheduler that we implemented makes all the threads created with the “thread_create” function with a fixed priority of 2, the only exceptions are for the Main and the Idle threads. The Main has the highest priority (1) and the Idle has the lowest (15), and the queue of their priority works as a FIFO algorithm (notice that it has no sense to create a thread with priority 15 because it won’t be executed because of the Idle thread is an infinite loop), all the other threads will start with a priority of 2 in the queue of priority 2, and after the time quantum, set to 0,5s, they will be moved into the queue of priority 3, and with the “thread_yield_higher()” the thread will yield only if there is another thread with a higher priority (lower number is a higher priority). After reaching the third and last queue of our feedback scheduler (so the queue with priority 4), if there is no higher priority thread, the scheduler will use a Round-Robin algorithm between the threads in the queue with priority 4. For testing, we have created the main.c, located in the: /RIOT_OS/examples/FBTester/main.c.
+We created 5 different threads named A, B, C, D, and E with different service times.
+With the defined global constant QUANTUM (milliseconds) you can set the time interval between every print of the specified thread.
+Here you have some output examples with different values of QUANTUM.
 
-RIOT is based on the following design principles: energy-efficiency, real-time
-capabilities, small memory footprint, modularity, and uniform API access,
-independent of the underlying hardware (this API offers partial POSIX
-compliance).
+QUANTUM 100
+img 1
 
-RIOT is developed by an international open source community which is
-independent of specific vendors (e.g. similarly to the Linux community).
-RIOT is licensed with LGPLv2.1, a copyleft license which fosters
-indirect business models around the free open-source software platform
-provided by RIOT, e.g. it is possible to link closed-source code with the
-LGPL code.
+QUANTUM 500
+img 2
 
-## FEATURES
+## IMPLEMENTATION CHOICES
+We wanted to keep the RIOT OS structure as clean as possible and make our changes only to be a module that you can use or not use, we achieved this using functions already implemented in the operating system, like sched_change_priority() and/or the “#if ” directive to enable some modification only if the module “MODULE_SCHED_FEEDBACK” is used. We added only two important files in the RIOT source code: the sched_feedback.h and the sched_feedback.c, both located in the sys folder (obviously we have also created all the Makefiles to be able to compile and run our application correctly through our new scheduler). In the sched_feedback.h we have defined only the timer used for the new scheduler and the sched_feedback_init, the function used to initialize the feedback scheduler.
+In the sched_feedback.c we have implemented the sched_feedback_init and we also implemented three important and different functions:
+- sched_feedback_set → which sets the feedback scheduler if it’s necessary
+- sched_runq_callback → which checks if the priority of the active thread is the right
+priority and it decides what to do based on the priority of the active thread passed as
+a parameter.
+- sched_feedback_cb → this function is called every tick of the timer (we used the ztimer to implement it) and it decides what to do based on the priority of the active thread.
+Some parts of the code are commented for a better understanding of the behavior of the scheduler.
 
-RIOT provides features including, but not limited to:
+## INSTRUCTION FOR BUILDING, EXECUTING AND TESTING
+Building our application is easy. 
+A Linux machine is required, so you can proceed in two different ways:
+- Codespace*
 
-* a preemptive, tickless scheduler with priorities
-* flexible memory management
-* high resolution, long-term timers
-* MTD abstraction layer
-* File System integration
-* support 200+ boards based on AVR, MSP430, ESP8266, ESP32, RISC-V,
-  ARM7 and ARM Cortex-M
-* the native port allows to run RIOT as-is on Linux and BSD.
-  Multiple instances of RIOT running on a single machine can also be
-  interconnected via a simple virtual Ethernet bridge or via a simulated
-  IEEE 802.15.4 network (ZEP)
-* IPv6
-* 6LoWPAN (RFC4944, RFC6282, and RFC6775)
-* UDP
-* RPL (storing mode, P2P mode)
-* CoAP
-* OTA updates via SUIT
-* MQTT
-* USB (device mode)
-* Display / Touchscreen support
-* CCN-Lite
-* LoRaWAN
-* UWB
-* Bluetooth (BLE) via [NimBLE](https://github.com/apache/mynewt-nimble)
+  Create a codespace into this repository and you will already be ready to follow the steps below.
+- Linux machine
 
-## GETTING RIOT
+  Download or clone this repository on your Linux device and, with the terminal, browse into the repository folder.
 
-The most convenient way to get RIOT is to clone it via Git
+You should be in the RIOT/ directory, from here you can follow the following commands step by step:
 
 ```console
-$ git clone https://github.com/RIOT-OS/RIOT
+sudo apt update
 ```
-
-this will ensure that you get all the newest features and bug fixes with the
-caveat of an ever changing work environment.
-
-If you prefer things more stable, you can download the source code of one of our
-quarter annual releases [via Github][releases] as ZIP file or tarball. You can
-also checkout a release in a cloned Git repository using
 
 ```console
-$ git pull --tags
-$ git checkout <YYYY.MM>
+sudo apt upgrade
 ```
 
-For more details on our release cycle, check our [documentation][release cycle].
+Install all required packages
+```console
+sudo apt install git gcc-arm-none-eabi make gcc-multilib libstdc++-arm-none-eabi-newlib openocd gdb-multiarch doxygen wget unzip python3-serial
+```
 
-[releases]: https://github.com/RIOT-OS/RIOT/releases
-[release cycle]: https://doc.riot-os.org/release-cycle.html
+Go into the folder where the application to test the new scheduler is located
+```console
+cd examples/FBTester
+```
 
-## GETTING STARTED
-* You want to start the RIOT? Just follow our
-[quickstart guide](https://doc.riot-os.org/index.html#the-quickest-start) or
-try this
-[tutorial](https://github.com/RIOT-OS/Tutorials/blob/master/README.md).
-For specific toolchain installation, follow instructions in the
-[getting started](https://doc.riot-os.org/getting-started.html) page.
-* The RIOT API itself can be built from the code using doxygen. The latest
-  version of the documentation is uploaded daily to
-  [doc.riot-os.org](https://doc.riot-os.org).
+Compile and run
+```console
+make all term
+```
 
-## FORUM
-Do you have a question, want to discuss a new feature, or just want to present
-your latest project using RIOT? Come over to our [forum] and post to your hearts
-content.
+## TEST THE DIFFERENCES
+To test the differences with the standard scheduler you can also try to use the standard scheduler already implemented in RIOT with this command instead of the last one:
+“NOFB=1 make all term”.
+Here on the left side, you can find the output: NOFB = 1 with QUANTUM set to 1000
 
-[forum]: https://forum.riot-os.org
-
-## CONTRIBUTE
-
-To contribute something to RIOT, please refer to our
-[contributing document](CONTRIBUTING.md).
-
-## MAILING LISTS
-* RIOT commits: [commits@riot-os.org](https://lists.riot-os.org/mailman/listinfo/commits)
-* Github notifications: [notifications@riot-os.org](https://lists.riot-os.org/mailman/listinfo/notifications)
-
-## LICENSE
-* Most of the code developed by the RIOT community is licensed under the GNU
-  Lesser General Public License (LGPL) version 2.1 as published by the Free
-  Software Foundation.
-* Some external sources, especially files developed by SICS are published under
-  a separate license.
-
-All code files contain licensing information.
-
-For more information, see the RIOT website:
-
-https://www.riot-os.org
+If you are only interested in the code we added you can check out this commit:
 
 
-[api-badge]: https://img.shields.io/badge/docs-API-informational.svg
-[api-link]: https://doc.riot-os.org/
-[license-badge]: https://img.shields.io/github/license/RIOT-OS/RIOT
-[license-link]: https://github.com/RIOT-OS/RIOT/blob/master/LICENSE
-[master-ci-badge]: https://ci.riot-os.org/job/branch/master/badge
-[master-ci-link]: https://ci.riot-os.org/details/branch/master
-[matrix-badge]: https://img.shields.io/badge/chat-Matrix-brightgreen.svg
-[matrix-link]: https://matrix.to/#/#riot-os:matrix.org
-[merge-chance-link]: https://merge-chance.info/target?repo=RIOT-OS/RIOT
-[release-badge]: https://img.shields.io/github/release/RIOT-OS/RIOT.svg
-[release-link]: https://github.com/RIOT-OS/RIOT/releases/latest
-[stackoverflow-badge]: https://img.shields.io/badge/stackoverflow-%5Briot--os%5D-yellow
-[stackoverflow-link]: https://stackoverflow.com/questions/tagged/riot-os
-[twitter-badge]: https://img.shields.io/badge/social-Twitter-informational.svg
-[twitter-link]: https://twitter.com/RIOT_OS
-[wiki-badge]: https://img.shields.io/badge/docs-Wiki-informational.svg
-[wiki-link]: https://github.com/RIOT-OS/RIOT/wiki
+\* A GitHub codespace is a cloud-based development environment that allows you to write, run, and test code directly in the browser or your preferred development environment. It's a virtualized instance of a complete development environment with all the necessary dependencies and configurations.
