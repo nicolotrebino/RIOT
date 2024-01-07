@@ -15,10 +15,11 @@ With the defined global constant QUANTUM (milliseconds) you can set the time int
 Here you have some output examples with different values of QUANTUM.
 
 QUANTUM 100
-img 1
+<img src="https://raw.githubusercontent.com/nicolotrebino/RIOT/scheduler_feedback/project_documentation/img1.png" alt="QUANTUM100">
+
 
 QUANTUM 500
-img 2
+<img src="https://raw.githubusercontent.com/nicolotrebino/RIOT/scheduler_feedback/project_documentation/img2.png" alt="QUANTUM500">
 
 ## IMPLEMENTATION CHOICES
 We wanted to keep the RIOT OS structure as clean as possible and make our changes only to be a module that you can use or not use, we achieved this using functions already implemented in the operating system, like sched_change_priority() and/or the “#if ” directive to enable some modification only if the module “MODULE_SCHED_FEEDBACK” is used. We added only two important files in the RIOT source code: the sched_feedback.h and the sched_feedback.c, both located in the sys folder (obviously we have also created all the Makefiles to be able to compile and run our application correctly through our new scheduler). In the sched_feedback.h we have defined only the timer used for the new scheduler and the sched_feedback_init, the function used to initialize the feedback scheduler.
@@ -66,11 +67,19 @@ make all term
 ```
 
 ## TEST THE DIFFERENCES
+<img src="https://raw.githubusercontent.com/nicolotrebino/RIOT/scheduler_feedback/project_documentation/img3.png" height="350" alt="NOFB">
+
 To test the differences with the standard scheduler you can also try to use the standard scheduler already implemented in RIOT with this command instead of the last one:
 “NOFB=1 make all term”.
 Here on the left side, you can find the output: NOFB = 1 with QUANTUM set to 1000
 
 If you are only interested in the code we added you can check out this commit:
+
+[Scheduler feedback](https://github.com/nicolotrebino/RIOT/commit/58ab5a682f7adce0e7dbcdf462311fb541771afa)
+
+Or check the patch file:
+
+[Patch file](project_documentation/documentation.pdf)
 
 
 \* A GitHub codespace is a cloud-based development environment that allows you to write, run, and test code directly in the browser or your preferred development environment. It's a virtualized instance of a complete development environment with all the necessary dependencies and configurations.
