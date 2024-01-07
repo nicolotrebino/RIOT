@@ -1,0 +1,522 @@
+diff --git a/RIOT/core/lib/include/thread_config.h b/RIOT/core/lib/include/thread_config.h
+index d3f3542..c4d7ff2 100644
+--- a/RIOT/core/lib/include/thread_config.h
++++ b/RIOT/core/lib/include/thread_config.h
+@@ -132,8 +132,12 @@ extern "C" {
+  * @brief Priority of the main thread
+  */
+ #ifndef THREAD_PRIORITY_MAIN
+-#define THREAD_PRIORITY_MAIN           (THREAD_PRIORITY_MIN - \
+-                                        (SCHED_PRIO_LEVELS / 2))
++#ifdef MODULE_SCHED_FEEDBACK
++#define THREAD_PRIORITY_MAIN 1
++#else 
++#define THREAD_PRIORITY_MAIN            (THREAD_PRIORITY_MIN - \
++                                            (SCHED_PRIO_LEVELS / 2))
++#endif
+ #endif
+ 
+ #ifdef __cplusplus
+diff --git a/RIOT/core/sched.c b/RIOT/core/sched.c
+index 236c58e..919830b 100644
+--- a/RIOT/core/sched.c
++++ b/RIOT/core/sched.c
+@@ -170,6 +170,11 @@ thread_t *__attribute__((used)) sched_run(void)
+     sched_runq_callback(nextrq);
+ #endif
+ 
++// Printing the context switches
++#if (IS_USED(MODULE_SCHED_FEEDBACK))
++    printf("Next thread: %s. PID: %u. PRIORITY: %u \n", next_thread->name, next_thread->pid, next_thread->priority);
++#endif
++
+     DEBUG(
+         "sched_run: active thread: %" PRIkernel_pid ", next thread: %" PRIkernel_pid "\n",
+         (kernel_pid_t)((active_thread == NULL)
+diff --git a/RIOT/core/thread.c b/RIOT/core/thread.c
+index 4332cb9..432a46c 100644
+--- a/RIOT/core/thread.c
++++ b/RIOT/core/thread.c
+@@ -32,7 +32,7 @@
+ #include "bitarithm.h"
+ #include "sched.h"
+ 
+-#define ENABLE_DEBUG 0
++#define ENABLE_DEBUG 1
+ #include "debug.h"
+ 
+ thread_status_t thread_getstatus(kernel_pid_t pid)
+@@ -192,10 +192,23 @@ kernel_pid_t thread_create(char *stack, int stacksize, uint8_t priority,
+                            int flags, thread_task_func_t function, void *arg,
+                            const char *name)
+ {
+-    if (priority >= SCHED_PRIO_LEVELS) {
++
++    if (priority >= SCHED_PRIO_LEVELS){
+         return -EINVAL;
+     }
+ 
++    #ifdef MODULE_SCHED_FEEDBACK
++    // Check if the priority is not a negative value 
++    if (priority < 1) {
++        return -EINVAL;
++    }
++    // Preserving the value of the minimum priority and of the thread's main priority
++    // (respectively 15 and 1), and changing the others prio value to 2
++    if((priority != THREAD_PRIORITY_MIN) && (priority != THREAD_PRIORITY_MAIN)){
++        priority = 2;
++    }
++    #endif
++
+ #ifdef DEVELHELP
+     int total_stacksize = stacksize;
+ #endif
+diff --git a/RIOT/examples/FBTester/Makefile b/RIOT/examples/FBTester/Makefile
+new file mode 100644
+index 0000000..d1b1d41
+--- /dev/null
++++ b/RIOT/examples/FBTester/Makefile
+@@ -0,0 +1,34 @@
++
++# name of your application
++APPLICATION = FBTester
++
++# If no BOARD is found in the environment, use this default:
++BOARD ?= native
++
++# This has to be the absolute path to the RIOT base directory:
++RIOTBASE ?= $(CURDIR)/../..
++
++include $(RIOTBASE)/tests/sys/Makefile.sys_common
++
++# Set to 1 to disable the feedback scheduling module
++NOFB ?= 0
++
++ifneq (1,$(NOFB))
++  USEMODULE += sched_feedback
++endif
++USEMODULE += ztimer_msec
++
++# microbit qemu failing currently
++TEST_ON_CI_BLACKLIST += microbit
++
++include $(RIOTBASE)/Makefile.include
++
++# Increase time between feedback calls so prints are not interrupted for
++# slow CPU's
++ifneq (,$(filter ztimer_usec,$(USEMODULE)))
++  CFLAGS += -DSCHED_FB_TIMEOUT=100*1000
++else
++ifneq (,$(filter ztimer_msec,$(USEMODULE)))
++  CFLAGS += -DSCHED_FB_TIMEOUT=100
++endif
++endif
+diff --git a/RIOT/examples/FBTester/main.c b/RIOT/examples/FBTester/main.c
+new file mode 100644
+index 0000000..3df28f4
+--- /dev/null
++++ b/RIOT/examples/FBTester/main.c
+@@ -0,0 +1,120 @@
++/*
++ * Copyright (C) 2023 AFN_Security
++ *
++ * This file is subject to the terms and conditions of the GNU Lesser
++ * General Public License v2.1. See the file LICENSE in the top level
++ * directory for more details.
++ */
++
++/**
++ * @ingroup     tests
++ * @{
++ * @file
++ * @brief       Test sys/sched_feedback
++ * @author      Nicolò Trebino <nicolo.trebino@gmail.com> @nicolotrebino
++ * @author      Federico Garau <fedegarau02@gmail.com> @fedeg202
++ * @}
++ */
++
++#include <stdio.h>
++#include <stdint.h>
++#include <inttypes.h>
++
++#include "thread.h"
++#include "ztimer.h"
++#include "timex.h"
++
++#define ENABLE_DEBUG 1
++#include "debug.h"
++
++static kernel_pid_t main_pid;
++
++// Each thread gets a stack
++static char stack[5][THREAD_STACKSIZE_DEFAULT];
++
++#define QUANTUM 100
++
++uint8_t counter = 0;
++
++// Threads' service time definition
++uint32_t A_s_time = 3000;
++uint32_t B_s_time = 6000;
++uint32_t C_s_time = 4000;
++uint32_t D_s_time = 5000;
++uint32_t E_s_time = 2000;
++
++void print_thread(char name, uint32_t s_time){
++    // Execution time
++    uint32_t ex_time = 0;
++    // Remaining seconds
++    uint32_t r_sec = 0;
++    // Remaining tenths of a second
++    uint32_t r_tenths = 0;
++    counter++;
++    while (ex_time < s_time-QUANTUM){
++        ztimer_spin(ZTIMER_MSEC, QUANTUM);
++        ex_time += QUANTUM;
++        r_sec = (s_time - ex_time)/1000;
++        r_tenths = ((s_time - ex_time) % 1000) / 100;
++        printf("%c - REMAINING TIME: %u.%us\n", name, r_sec, r_tenths);
++        counter++;
++    }
++    ex_time += QUANTUM;
++    r_sec = (s_time - ex_time)/1000;
++    r_tenths = ((s_time - ex_time) % 1000) / 100;
++    printf("%c - REMAINING TIME: %u.%us\n", name, r_sec, r_tenths);
++}
++
++void *thread_A(void *d)
++{
++    (void) d;
++    print_thread('A', A_s_time);
++    DEBUG("Thread A finished after %u quantums\n", counter);
++    return NULL;
++}
++
++void *thread_B(void *d)
++{
++    (void) d;
++    print_thread('B', B_s_time);
++    DEBUG("Thread B finished after %u quantums\n", counter);
++    return NULL;
++}
++
++void *thread_C(void *d)
++{
++    (void) d;
++    print_thread('C', C_s_time);
++    DEBUG("Thread C finished after %u quantums\n", counter);
++    return NULL;
++}
++
++void *thread_D(void *d)
++{
++    (void) d;
++    print_thread('D', D_s_time);
++    DEBUG("Thread D finished after %u quantums\n", counter);
++    return NULL;
++}
++
++void *thread_E(void *d)
++{
++    (void) d;
++    print_thread('E', E_s_time);
++    DEBUG("Thread E finished after %u quantums\n", counter);
++    return NULL;
++}
++
++int main(void)
++{
++    DEBUG_PUTS("Starting Threads");
++    main_pid = thread_getpid();
++
++    thread_create(stack[0], sizeof(stack[0]), THREAD_PRIORITY_MAIN+1, THREAD_CREATE_STACKTEST, thread_A, NULL, "A");
++    thread_create(stack[1], sizeof(stack[1]), THREAD_PRIORITY_MAIN+2, THREAD_CREATE_STACKTEST, thread_B, NULL, "B");
++    thread_create(stack[2], sizeof(stack[2]), THREAD_PRIORITY_MAIN+3, THREAD_CREATE_STACKTEST, thread_C, NULL, "C");
++    thread_create(stack[3], sizeof(stack[3]), THREAD_PRIORITY_MAIN+4, THREAD_CREATE_STACKTEST, thread_D, NULL, "D");
++    thread_create(stack[4], sizeof(stack[4]), THREAD_PRIORITY_MAIN+5, THREAD_CREATE_STACKTEST, thread_E, NULL, "E");
++
++    DEBUG_PUTS("Thread Main is finished!");
++}
+diff --git a/RIOT/sys/auto_init/auto_init.c b/RIOT/sys/auto_init/auto_init.c
+index 8f2212c..549270b 100644
+--- a/RIOT/sys/auto_init/auto_init.c
++++ b/RIOT/sys/auto_init/auto_init.c
+@@ -70,6 +70,11 @@ extern void sched_round_robin_init(void);
+ AUTO_INIT(sched_round_robin_init,
+           AUTO_INIT_PRIO_MOD_SCHED_ROUND_ROBIN);
+ #endif
++#if IS_USED(MODULE_SCHED_FEEDBACK)
++extern void sched_feedback_init(void);
++AUTO_INIT(sched_feedback_init,
++          AUTO_INIT_PRIO_MOD_SCHED_FEEDBACK);
++#endif
+ #if IS_USED(MODULE_DUMMY_THREAD)
+ extern void dummy_thread_create(void);
+ AUTO_INIT(dummy_thread_create,
+diff --git a/RIOT/sys/auto_init/include/auto_init_priorities.h b/RIOT/sys/auto_init/include/auto_init_priorities.h
+index d87d43c..876c756 100644
+--- a/RIOT/sys/auto_init/include/auto_init_priorities.h
++++ b/RIOT/sys/auto_init/include/auto_init_priorities.h
+@@ -66,6 +66,18 @@ extern "C" {
+ #define AUTO_INIT_PRIO_MOD_SCHED_ROUND_ROBIN            1060
+ #endif
+ #ifndef AUTO_INIT_PRIO_MOD_DUMMY_THREAD
++/**
++ * @brief   scheduling statistics priority
++ */
++#define AUTO_INIT_PRIO_MOD_SCHEDSTATISTICS              1050
++#endif
++#ifndef AUTO_INIT_PRIO_MOD_SCHED_FEEDBACK
++/**
++ * @brief   feedback scheduling priority
++ */
++#define AUTO_INIT_PRIO_MOD_SCHED_FEEDBACK           1060
++#endif
++#ifndef AUTO_INIT_PRIO_MOD_DUMMY_THREAD
+ /**
+  * @brief   dummy thread priority
+  */
+diff --git a/RIOT/sys/include/net/gnrc/ipv6/nib/conf.h b/RIOT/sys/include/net/gnrc/ipv6/nib/conf.h
+index 4ab6ba8..d715b18 100644
+--- a/RIOT/sys/include/net/gnrc/ipv6/nib/conf.h
++++ b/RIOT/sys/include/net/gnrc/ipv6/nib/conf.h
+@@ -130,11 +130,18 @@ extern "C" {
+ #endif
+ 
+ /**
+- * @brief    activate router advertising at interface start-up
++ * @brief    (de-)activate router advertising at interface start-up
+  */
+ #ifndef CONFIG_GNRC_IPV6_NIB_ADV_ROUTER
++#if CONFIG_GNRC_IPV6_NIB_ROUTER && \
++    (!CONFIG_GNRC_IPV6_NIB_6LR || CONFIG_GNRC_IPV6_NIB_6LBR) && \
++    !(IS_USED(MODULE_DHCPV6_CLIENT_IA_PD) || IS_USED(MODULE_GNRC_UHCPC) || \
++      IS_USED(MODULE_GNRC_IPV6_AUTO_SUBNETS) || IS_USED(MODULE_GNRC_IPV6_STATIC_ADDR))
++#define CONFIG_GNRC_IPV6_NIB_ADV_ROUTER               1
++#else
+ #define CONFIG_GNRC_IPV6_NIB_ADV_ROUTER               0
+ #endif
++#endif
+ 
+ /**
+  * @brief   Include a Route Information Option for subnets
+diff --git a/RIOT/sys/include/sched_feedback.h b/RIOT/sys/include/sched_feedback.h
+new file mode 100644
+index 0000000..f8fa40b
+--- /dev/null
++++ b/RIOT/sys/include/sched_feedback.h
+@@ -0,0 +1,54 @@
++#ifndef SCHED_FEEDBACK_H
++#define SCHED_FEEDBACK_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#if !defined(SCHED_FB_TIMEOUT) || defined(DOXYGEN)
++/**
++ * @brief   Time between feedback calls in Units of SCHED_FB_TIMERBASE
++ *
++ * @details Defaults to 10ms
++ */
++#if MODULE_ZTIMER_MSEC
++#define SCHED_FB_TIMEOUT 10
++#else
++#define SCHED_FB_TIMEOUT 10000
++#endif
++#endif
++
++#if !defined(SCHED_FB_TIMERBASE) || defined(DOXYGEN)
++/**
++ * @brief   ztimer to use for the feedback scheduler
++ *
++ * @details Defaults to ZTIMER_MSEC if available else it uses ZTIMER_USEC
++ */
++#if MODULE_ZTIMER_MSEC
++#define SCHED_FB_TIMERBASE ZTIMER_MSEC
++#else
++#define SCHED_FB_TIMERBASE ZTIMER_USEC
++#endif
++#endif
++
++#if !defined(SCHED_FB_MASK) || defined(DOXYGEN)
++/**
++ * @brief   Masks off priorities that should not be scheduled default: 0 is masked
++ *
++ * @details Priority 0 (highest) should always be masked.
++ *          Threads with that priority may not be programmed
++ *          with the possibility of being scheduled in mind.
++ */
++#define SCHED_FB_MASK (1 << 0)
++#endif
++
++/**
++ *  @brief Initialises the Feedback Scheduler
++ */
++void sched_feedback_init(void);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/RIOT/sys/net/gnrc/routing/rpl/gnrc_rpl.c b/RIOT/sys/net/gnrc/routing/rpl/gnrc_rpl.c
+index 383637b..f2b0f37 100644
+--- a/RIOT/sys/net/gnrc/routing/rpl/gnrc_rpl.c
++++ b/RIOT/sys/net/gnrc/routing/rpl/gnrc_rpl.c
+@@ -122,15 +122,10 @@ kernel_pid_t gnrc_rpl_init(kernel_pid_t if_pid)
+     }
+ 
+     /* register all_RPL_nodes multicast address */
+-    gnrc_netif_t *netif = gnrc_netif_get_by_pid(if_pid);
+-    gnrc_netif_ipv6_group_join_internal(netif, &ipv6_addr_all_rpl_nodes);
++    gnrc_netif_ipv6_group_join_internal(gnrc_netif_get_by_pid(if_pid),
++                                        &ipv6_addr_all_rpl_nodes);
+ 
+-    /* send DODAG Information Solicitation */
+     gnrc_rpl_send_DIS(NULL, (ipv6_addr_t *) &ipv6_addr_all_rpl_nodes, NULL, 0);
+-
+-    /* RPL enables routing, start advertising ourself as a router */
+-    gnrc_ipv6_nib_change_rtr_adv_iface(netif, true);
+-
+     return gnrc_rpl_pid;
+ }
+ 
+diff --git a/RIOT/sys/sched_feedback/Kconfig b/RIOT/sys/sched_feedback/Kconfig
+new file mode 100644
+index 0000000..47d3ea4
+--- /dev/null
++++ b/RIOT/sys/sched_feedback/Kconfig
+@@ -0,0 +1,19 @@
++# Copyright (c) 2021 TUBA Freiberg
++#
++# This file is subject to the terms and conditions of the GNU Lesser
++# General Public License v2.1. See the file LICENSE in the top level
++# directory for more details.
++#
++
++config  MODULE_SCHED_FEEDBACK
++    bool "feedback scheduling support"
++    depends on MODULE_ZTIMER_MSEC || MODULE_ZTIMER_USEC
++    depends on TEST_KCONFIG
++    select MODULE_SCHED_RUNQUEUE_API
++
++if MODULE_SCHED_FEEDBACK
++config SCHED_FB_TIMEOUT
++    int "timeout for feedback scheduling"
++    default 10000
++
++endif
+diff --git a/RIOT/sys/sched_feedback/Makefile b/RIOT/sys/sched_feedback/Makefile
+new file mode 100644
+index 0000000..48422e9
+--- /dev/null
++++ b/RIOT/sys/sched_feedback/Makefile
+@@ -0,0 +1 @@
++include $(RIOTBASE)/Makefile.base
+diff --git a/RIOT/sys/sched_feedback/Makefile.dep b/RIOT/sys/sched_feedback/Makefile.dep
+new file mode 100644
+index 0000000..9855c70
+--- /dev/null
++++ b/RIOT/sys/sched_feedback/Makefile.dep
+@@ -0,0 +1,7 @@
++# this depends on either ztimer_usec or ztimer_msec if neither is used
++# prior to this msec is preferred
++ifeq (,$(filter ztimer_usec,$(USEMODULE))$(filter ztimer_msec,$(USEMODULE)))
++  USEMODULE += ztimer_msec
++endif
++
++USEMODULE += sched_runq_callback
+diff --git a/RIOT/sys/sched_feedback/sched_feedback.c b/RIOT/sys/sched_feedback/sched_feedback.c
+new file mode 100644
+index 0000000..c98f815
+--- /dev/null
++++ b/RIOT/sys/sched_feedback/sched_feedback.c
+@@ -0,0 +1,79 @@
++#include "sched.h"
++#include "thread.h"
++#include "ztimer.h"
++#include "sched_feedback.h"
++
++#define ENABLE_DEBUG 1
++#include "debug.h"
++
++static void _sched_feedback_cb(void *d);
++
++static ztimer_t _fb_timer = { .callback = _sched_feedback_cb };
++
++void _sched_feedback_cb(void *d)
++{
++    (void)d;
++    thread_t *active_thread = thread_get_active();
++    switch (active_thread->priority)
++    {
++        case 2:
++            sched_change_priority(active_thread, active_thread->priority+1);
++            break;
++        case 3:
++            sched_change_priority(active_thread, active_thread->priority+1);
++            break;
++        case 4:
++            sched_runq_advance(4);
++            thread_yield_higher();
++            break;
++        default:
++            sched_runq_advance(4);
++            thread_yield_higher();
++            break;
++    }
++    return;
++}
++
++static inline void _sched_feedback_remove(void)
++{
++    ztimer_remove(SCHED_FB_TIMERBASE, &_fb_timer);
++}
++
++static inline void _sched_feedback_set(uint8_t prio)
++{
++    if (prio == 0) {
++        return;
++    }
++    ztimer_set(SCHED_FB_TIMERBASE, &_fb_timer, 500);
++}
++
++void sched_runq_callback(uint8_t prio)
++{
++    // Check if the parameter passed is not
++    // a masked priority or a 0
++    if (SCHED_FB_MASK & (1 << prio) || prio == 0) {
++        return;
++    }
++    switch(prio)
++    {
++        case 1:
++            break;
++        case 15:
++            _sched_feedback_remove();
++            break;
++        default:
++            _sched_feedback_set(prio);
++            break;
++    }
++    return;
++}
++
++void sched_feedback_init(void)
++{
++    // init fb scheduler
++    thread_t *active_thread = thread_get_active();
++    if (active_thread) {
++        DEBUG("First executed thread %s. PID: %u. Priority: %u.\n", active_thread->name, active_thread->pid, active_thread->priority);
++        sched_runq_callback(active_thread->priority);
++    }
++}
+diff --git a/RIOT/tests/sys/Makefile.sys_common b/RIOT/tests/sys/Makefile.sys_common
+index ecfb7b7..bf74e2c 100644
+--- a/RIOT/tests/sys/Makefile.sys_common
++++ b/RIOT/tests/sys/Makefile.sys_common
+@@ -1,2 +1,2 @@
+ RIOTBASE ?= $(CURDIR)/../../..
+-include $(CURDIR)/../../Makefile.tests_common
++include $(RIOTBASE)/tests/Makefile.tests_common
